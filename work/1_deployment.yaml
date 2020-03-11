@@ -1,0 +1,101 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: app
+  template:
+    metadata:
+      labels:
+        role: app
+    spec:
+      containers:
+      - name: app-container
+        image: masayaaoyama/demo-app:v1.0
+        imagePullPolicy: Always
+        env:
+        - name: DBHOST
+          value: mysql # not localhost, connect via mysql Service resource
+        - name: DBPORT
+          value: "3306"
+        - name: DBUSER
+          value: myuser
+        - name: DBPASS
+          value: mypass
+        - name: DBNAME
+          value: mydb
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+spec:
+  type: LoadBalancer
+  ports:
+    - name: "http-port"
+      protocol: "TCP"
+      port: 80
+      targetPort: 8080
+  selector:
+    role: app
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: init-db-sql
+data:
+  create_usertable.sql: |
+    CREATE TABLE IF NOT EXISTS mydb.users (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, name VARCHAR(50));
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: db
+  template:
+    metadata:
+      labels:
+        role: db
+    spec:
+      containers:
+      - name: mysql-container
+        image: mysql:8.0
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: rootpass
+        - name: MYSQL_DATABASE
+          value: mydb
+        - name: MYSQL_USER
+          value: myuser
+        - name: MYSQL_PASSWORD
+          value: mypass
+        volumeMounts:
+        - name: init-sql-configmap
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: init-sql-configmap
+          configMap:
+            name: init-db-sql
+---
+# Create mysql Service for connecting mysql deployment from demo application
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  type: ClusterIP
+  ports:
+    - name: "mysql-port"
+      protocol: "TCP"
+      port: 3306
+      targetPort: 3306
+  selector:
+    role: db
