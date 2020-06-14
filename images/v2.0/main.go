@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"github.com/Pallinder/go-randomdata"
 	_ "github.com/go-sql-driver/mysql"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
-var version = "v1.0"
+var version = "v2.0"
 
 var (
 	dbuser   string
@@ -38,12 +42,46 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func healthzHandler(w http.ResponseWriter, r *http.Request) {
+	check := checkDBConnection()
+	if !check {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, fmt.Sprintf("Cannot connect to DB at %s\n", hostname))
+		fmt.Printf(fmt.Sprintf("Cannot connect to DB at %s\n", hostname))
+	}
+	fmt.Printf(fmt.Sprintf("Can connect to DB at %s\n", hostname))
+}
+
 func main() {
 	getFromEnv()
-	http.HandleFunc("/", rootHandler)
-	http.HandleFunc("/getuser", getUserHandler)
-	http.HandleFunc("/adduser", addUserHandler)
-	http.ListenAndServe(":8080", nil)
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", rootHandler)
+	mux.HandleFunc("/getuser", getUserHandler)
+	mux.HandleFunc("/adduser", addUserHandler)
+	mux.HandleFunc("/healthz", healthzHandler)
+
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil {
+			fmt.Printf("fin ListenAndServe(): %s", err)
+		}
+	}()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM)
+	<-sigChan
+
+	time.Sleep(time.Second * 3)
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := server.Shutdown(ctx); err != nil {
+		fmt.Printf("Error shutdown: %s", err)
+	}
+
 }
 
 func getFromEnv() {
@@ -99,4 +137,13 @@ func addUser() string {
 	}
 
 	return name
+}
+
+func checkDBConnection() bool {
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", dbuser, dbpass, dbhost, dbport, dbname))
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	return true
 }
