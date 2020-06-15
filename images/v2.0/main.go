@@ -76,7 +76,6 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGTERM)
 	<-sigChan
 
-	time.Sleep(time.Second * 3)
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := server.Shutdown(ctx); err != nil {
 		fmt.Printf("Error shutdown: %s", err)

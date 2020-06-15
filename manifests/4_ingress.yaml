@@ -1,0 +1,252 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: app
+      version: v1.0
+  template:
+    metadata:
+      labels:
+        role: app
+        version: v1.0
+    spec:
+      containers:
+      - name: app-container
+        image: masayaaoyama/demo-app:v1.0
+        imagePullPolicy: Always
+        env:
+        - name: DBHOST
+          value: mysql-1.default.svc.cluster.local # not localhost, connect via mysql Service resource
+        - name: DBPORT
+          value: "3306"
+        - name: DBUSER
+          value: myuser
+        - name: DBPASS
+          value: mypass
+        - name: DBNAME
+          value: mydb
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app-2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: app
+      version: v2.0
+  template:
+    metadata:
+      labels:
+        role: app
+        version: v2.0
+    spec:
+      containers:
+      - name: app-container
+        image: masayaaoyama/demo-app:v2.0
+        imagePullPolicy: Always
+        env:
+        - name: DBHOST
+          value: mysql-2.default.svc.cluster.local # not localhost, connect via mysql Service resource
+        - name: DBPORT
+          value: "3306"
+        - name: DBUSER
+          value: myuser
+        - name: DBPASS
+          value: mypass
+        - name: DBNAME
+          value: mydb
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app-1
+spec:
+  type: NodePort
+  ports:
+    - name: "http-port"
+      protocol: "TCP"
+      port: 80
+      targetPort: 8080
+  selector:
+    role: app
+    version: v1.0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app-2
+spec:
+  type: NodePort
+  ports:
+    - name: "http-port"
+      protocol: "TCP"
+      port: 80
+      targetPort: 8080
+  selector:
+    role: app
+    version: v2.0
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: demo-apps
+spec:
+  rules:
+  - host: demo.example.com
+    http:
+      paths:
+      - path: /path1/
+        backend:
+          serviceName: demo-app-1
+          servicePort: 80
+      - path: /path2/
+        backend:
+          serviceName: demo-app-2
+          servicePort: 80
+  # tls:
+  # - hosts:
+  #   - demo.example.com
+  #   secretName: tls-sample
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: init-db-sql
+data:
+  create_usertable.sql: |
+    CREATE TABLE IF NOT EXISTS mydb.users (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, name VARCHAR(50));
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-1
+spec:
+  serviceName: mysql-1
+  replicas: 1
+  selector:
+    matchLabels:
+      role: db
+      version: v1.0
+  template:
+    metadata:
+      labels:
+        role: db
+        version: v1.0
+    spec:
+      containers:
+      - name: mysql-container
+        image: mysql:8.0
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: rootpass
+        - name: MYSQL_DATABASE
+          value: mydb
+        - name: MYSQL_USER
+          value: myuser
+        - name: MYSQL_PASSWORD
+          value: mypass
+        volumeMounts:
+        - name: init-sql-configmap
+          mountPath: /docker-entrypoint-initdb.d
+        - name: db-vol
+          mountPath: /var/lib/mysql
+      volumes:
+        - name: init-sql-configmap
+          configMap:
+            name: init-db-sql
+  volumeClaimTemplates:
+  - metadata:
+      name: db-vol
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 3G
+---
+# Create mysql Service for connecting mysql deployment from demo application
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-1
+spec:
+  type: ClusterIP
+  ports:
+    - name: "mysql-port"
+      protocol: "TCP"
+      port: 3306
+      targetPort: 3306
+  selector:
+    role: db
+    version: v1.0
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-2
+spec:
+  serviceName: mysql-2
+  replicas: 1
+  selector:
+    matchLabels:
+      role: db
+      version: v2.0
+  template:
+    metadata:
+      labels:
+        role: db
+        version: v2.0
+    spec:
+      containers:
+      - name: mysql-container
+        image: mysql:8.0
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: rootpass
+        - name: MYSQL_DATABASE
+          value: mydb
+        - name: MYSQL_USER
+          value: myuser
+        - name: MYSQL_PASSWORD
+          value: mypass
+        volumeMounts:
+        - name: init-sql-configmap
+          mountPath: /docker-entrypoint-initdb.d
+        - name: db-vol
+          mountPath: /var/lib/mysql
+      volumes:
+        - name: init-sql-configmap
+          configMap:
+            name: init-db-sql
+  volumeClaimTemplates:
+  - metadata:
+      name: db-vol
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 3G
+---
+# Create mysql Service for connecting mysql deployment from demo application
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-2
+spec:
+  type: ClusterIP
+  ports:
+    - name: "mysql-port"
+      protocol: "TCP"
+      port: 3306
+      targetPort: 3306
+  selector:
+    role: db
+    version: v2.0
